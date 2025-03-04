@@ -18,19 +18,7 @@ MAX_TOKENS_PER_MINUTE = 90000
 WINDOW_SECONDS = 60
 requests_timestamps = deque()
 tokens_timestamps = deque()
-# Đọc API key từ tệp
-# API_KEY_FILE = "api_key.txt"
-# def get_api_key():
-#     if os.path.exists(API_KEY_FILE):
-#         with open(API_KEY_FILE, "r") as f:
-#             return f.read().strip()
-#     return None
 
-# # Khởi tạo API key
-# api_key = get_api_key()
-# if not api_key:
-#     st.error("Không tìm thấy API key. Hãy chắc chắn rằng tệp 'api_key.txt' chứa API key của bạn.")
-#     st.stop()
 def check_and_wait_for_rate_limit(tokens_used: int):
     current_time = time.time()
     while requests_timestamps and (current_time - requests_timestamps[0] > WINDOW_SECONDS):
@@ -51,25 +39,42 @@ def load_specialized_dict_from_excel(excel_file):
     df = pd.read_excel(excel_file)
     return {str(row['English']).strip(): str(row['Vietnamese']).strip() for _, row in df.iterrows() if row['English'] and row['Vietnamese']}
 
-def translate_text_with_chatgpt(original_text, api_key, global_dict=None):
+def translate_text_with_chatgpt(original_text, api_key, global_dict=None, target_language=None):
     if not original_text.strip():
         return original_text
+
+    # Lấy các thuật ngữ chuyên ngành liên quan
     partial_dict = {eng: vie for eng, vie in global_dict.items() if eng.lower() in original_text.lower()} if global_dict else {}
     dict_prompt = "\n".join([f"{k}: {v}" for k, v in partial_dict.items()]) if partial_dict else ""
+
+    # Xác định prompt dịch dựa trên ngôn ngữ đích
+    if target_language == "vi":
+        system_prompt = (
+            "Bạn là một trợ lý AI dịch thuật. Hãy dịch văn bản sau từ tiếng Anh sang tiếng Việt, ưu tiên dùng đúng các thuật ngữ chuyên ngành (nếu có). Trước tiên hay tra cứu từ vựng trong câu có từ  nào thuộc từ vựng nằm trong file từ vựng chuyên ngành mà tôi cung cấp không, nếu có hãy dùng nghĩa tiếng việt ( cột Vietnamese trong file excel ) của từ vựng chuyên ngành đó được cung cấp trong file xlsx, các từ còn lại bạn có thể dịch tự động. ** Lưu ý mỗi câu chỉ được phép dịch 1 lần duy nhất, ngoài ra nếu đó là mội chuỗi kí tự bất kì không phải là bất kì từ tiếng anh nào thì đó có thể là kí hiệu hoặc mã của sản phẩm bạn có thể giữ nguyên và không cần dịch sang tiếng việt. Nếu đầu vào (input) không có nội dung thì bạn có thể bỏ qua và không trả về kết quả gì hết ( không trả output)."
+        )
+    else:
+        system_prompt = (
+            "Bạn là một trợ lý AI dịch thuật. Hãy dịch văn bản sau từ tiếng Việt sang tiếng Anh, ưu tiên dùng đúng các thuật ngữ chuyên ngành (nếu có). Trước tiên hay tra cứu từ vựng trong câu có từ  nào thuộc từ vựng nằm trong file từ vựng chuyên ngành mà tôi cung cấp không, nếu có hãy dùng nghĩa tiếng anh ( cột English trong file excel ) của từ vựng chuyên ngành đó được cung cấp trong file xlsx, các từ còn lại bạn có thể dịch tự động. ** Lưu ý mỗi câu chỉ được phép dịch 1 lần duy nhất, ngoài ra nếu đó là mội chuỗi kí tự bất kì không phải là bất kì từ tiếng việt nào thì đó có thể là kí hiệu hoặc mã của sản phẩm bạn có thể giữ nguyên và không cần dịch sang tiếng anh. Nếu đầu vào (input) không có nội dung thì bạn có thể bỏ qua và không trả về kết quả gì hết ( không trả output)."
+        )
+
     user_prompt = f"{dict_prompt}\n\n{original_text}"
+
     client = openai.OpenAI(api_key=api_key)
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "Bạn là một trợ lý AI dịch thuật. Hãy dịch văn bản sau từ tiếng Anh sang tiếng Việt, ưu tiên dùng đúng các thuật ngữ chuyên ngành (nếu có). Trước tiên hay tra cứu từ vựng trong câu có từ  nào thuộc từ vựng nằm trong file từ vựng chuyên ngành mà tôi cung cấp không, nếu có hãy dùng nghĩa tiếng việt của từ vựng chuyên ngành đó được cung cấp trong file xlsx, các từ còn lại bạn có thể dịch tự động. ** Lưu ý mỗi câu chỉ được phép dịch 1 lần duy nhất, ngoài ra nếu đó là mội chuỗi kí tự bất kì không phải là bất kì từ tiếng anh nào thì đó có thể là kí hiệu hoặc mã của sản phẩm bạn có thể giữ nguyên và không cần dịch sang tiếng việt. Nếu đầu vào (input) không có nội dung thì bạn có thể bỏ qua và không trả về kết quả gì hết ( không trả output)."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
         temperature=0.2,
         max_tokens=2048
     )
+
     translated_text = response.choices[0].message.content
     check_and_wait_for_rate_limit(response.usage.total_tokens if response.usage else 0)
+    
     return translated_text
+
 
 
 from pptx.util import Pt
@@ -156,7 +161,7 @@ def delete_unwanted_slides(pr, start_slide, end_slide):
             pr.part.drop_rel(slides[i].rId)
             xml_slides.remove(slides[i])
 
-def translate_pptx(pptx_file: BytesIO, api_key: str, specialized_dict: dict[str, str],start_slide: int, end_slide: int) -> BytesIO:
+def translate_pptx(pptx_file: BytesIO, api_key: str, specialized_dict: dict[str, str],start_slide: int, end_slide: int, target_language: str) -> BytesIO:
     """
     Dịch văn bản trong file PowerPoint từ tiếng Anh sang tiếng Việt, giữ nguyên font, cỡ chữ và màu sắc gốc.
     Xử lý văn bản tràn bằng cách điều chỉnh cỡ chữ động.
@@ -199,7 +204,7 @@ def translate_pptx(pptx_file: BytesIO, api_key: str, specialized_dict: dict[str,
 
                     # Thu thập văn bản gốc
                     original_text = "".join(run.text for run in para.runs)
-                    translated_text = translate_text_with_chatgpt(original_text, api_key, specialized_dict)
+                    translated_text = translate_text_with_chatgpt(original_text, api_key, specialized_dict, target_language)
 
                     # Bỏ qua nếu không có bản dịch hoặc bản dịch không thay đổi
                     if not translated_text or translated_text == original_text or translated_text == 'Xin lỗi, nhưng văn bản bạn cung cấp không đủ để dịch. Bạn có thể cung cấp thêm ngữ cảnh hoặc thông tin chi tiết hơn không?':
@@ -220,7 +225,7 @@ def translate_pptx(pptx_file: BytesIO, api_key: str, specialized_dict: dict[str,
                                 continue
                             # Thu thập văn bản gốc từ các run
                             original_text = "".join(run.text for run in para.runs)
-                            translated_text = translate_text_with_chatgpt(original_text, api_key, specialized_dict)
+                            translated_text = translate_text_with_chatgpt(original_text, api_key, specialized_dict, target_language)
                             # Chỉ cập nhật nếu bản dịch hợp lệ
                             if translated_text and translated_text != original_text and translated_text != 'Xin lỗi, nhưng văn bản bạn cung cấp không đủ để dịch. Bạn có thể cung cấp thêm ngữ cảnh hoặc thông tin chi tiết hơn không?':
                                 distribute_text_across_runs(para, translated_text)
@@ -246,14 +251,17 @@ uploaded_excel_dict = st.file_uploader("Tải file từ điển nếu có ( Exce
 specialized_dict = load_specialized_dict_from_excel(uploaded_excel_dict)
 
 uploaded_file = st.file_uploader("Tải lên file cần dịch (PPTX)", type=["pptx"])
+# Chọn hướng dịch
 
 if uploaded_file:
     pr = Presentation(uploaded_file)
     total_slides = len(pr.slides)
     start_slide = st.number_input("Chọn trang bắt đầu", min_value=1, max_value=total_slides, value=1)
     end_slide = st.number_input("Chọn trang kết thúc", min_value=start_slide, max_value=total_slides, value=total_slides)
-    
+    language_option = st.radio("Chọn hướng dịch:", ["Anh → Việt", "Việt → Anh"])
+# Xác định ngôn ngữ đích dựa trên lựa chọn
+    target_language = "vi" if language_option == "Anh → Việt" else "en"
     if st.button("Dịch file PPTX") and api_key:
-        output = translate_pptx(uploaded_file, api_key, specialized_dict, start_slide, end_slide)
-        file_name = "VN_" + uploaded_file.name
+        output = translate_pptx(uploaded_file, api_key, specialized_dict, start_slide, end_slide, target_language)
+        file_name = f"{'VN' if target_language == 'vi' else 'EN'}_{uploaded_file.name}"
         st.download_button("Tải về file đã dịch", output, file_name )
