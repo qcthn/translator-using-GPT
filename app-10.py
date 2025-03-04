@@ -238,10 +238,10 @@ def translate_pptx(pptx_file: BytesIO, api_key: str, specialized_dict: dict[str,
 # Streamlit UI
 st.set_page_config(page_title="Auto Translator App with Full Formatting")
 st.title("VN DITECH JSC")
-st.subheader("_Tự động dịch tài liệu_ :orange[(PPTX)] . _Giữ nguyên định dạng_", divider="orange")
+st.subheader("_Hỗ trợ dịch tài liệu :orange[(PowerPoint)] Anh - Việt_", divider="orange")
 
 
-api_key = st.text_input("Nhập OpenAI API key của bạn:", type="password")
+api_key = st.text_input("Nhập key Ditech:", type="password")
 uploaded_excel_dict = st.file_uploader("Tải file từ điển nếu có ( Excel )", type=["xlsx"])
 specialized_dict = load_specialized_dict_from_excel(uploaded_excel_dict)
 
